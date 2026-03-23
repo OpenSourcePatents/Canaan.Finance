@@ -34,9 +34,12 @@ function VerifiedDot({ verified }) {
   )
 }
 
-function SpotlightCard({ position, color = '#ff8c00' }) {
+function SpotlightCard({ position, color = '#ff8c00', meetingData }) {
   if (!position) return null
   const hourly = position.hours_per_week ? position.salary / (position.hours_per_week * 52) : null
+  const official = meetingData?.find(m =>
+    position.name && m.official.toLowerCase().includes(position.name.split(' ').pop().toLowerCase())
+  )
   return (
     <div style={{
       background: `linear-gradient(135deg, ${color}11, ${color}05)`,
@@ -78,6 +81,191 @@ function SpotlightCard({ position, color = '#ff8c00' }) {
           {position.hours_per_week < 40 && ` — working ${40 - position.hours_per_week} fewer hours per week than a standard full-time employee.`}
         </div>
       )}
+      {official && (
+        <div style={{
+          marginTop: 10, padding: '10px 14px', borderRadius: 8,
+          background: 'rgba(74,158,255,0.08)', border: '1px solid rgba(74,158,255,0.15)',
+          fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6,
+        }}>
+          <strong style={{ color: '#4a9eff' }}>Documented Meeting Hours:</strong> {official.total_documented_hours} hrs across {official.meetings_attended} meetings
+          ({official.committees?.length || 0} committee{official.committees?.length !== 1 ? 's' : ''}).
+          <span style={{ color: 'rgba(255,255,255,0.35)', marginLeft: 4 }}>
+            Source: parsed from official minutes on canaannh.gov
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MeetingAttendanceCard({ meetingData, year }) {
+  if (!meetingData || meetingData.length === 0) return null
+  return (
+    <div style={{
+      background: 'rgba(74,158,255,0.04)', border: '1px solid rgba(74,158,255,0.12)',
+      borderRadius: 12, padding: 20, marginBottom: 20,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Documented Meeting Attendance — {year}</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+            Parsed from official minutes at canaannh.gov/AgendaCenter
+          </div>
+        </div>
+        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 1.5 }}>
+          ● From minutes
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, marginBottom: 14, lineHeight: 1.6 }}>
+        <strong style={{ color: 'rgba(255,255,255,0.5)' }}>Note:</strong> These hours represent only documented public meeting time with recorded start and end times. They do not include prep work, driving, after-hours calls, training, or non-public sessions. Actual hours worked are likely higher.
+      </div>
+
+      {meetingData.map((row, idx) => (
+        <div key={idx} style={{
+          display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.5fr', gap: 8,
+          padding: '10px 12px', borderRadius: 6,
+          background: idx % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent',
+          alignItems: 'center',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{row.official}</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
+              {row.committees?.join(', ')}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#4a9eff', fontFamily: "'JetBrains Mono'" }}>
+              {row.meetings_attended}
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>meetings</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#22c55e', fontFamily: "'JetBrains Mono'" }}>
+              {row.total_documented_hours} hrs
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>documented</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
+              {row.first_meeting} — {row.last_meeting}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MeetingsView({ meetings, meetingData, year }) {
+  const [expandedMeeting, setExpandedMeeting] = useState(null)
+
+  const committees = [...new Set(meetings.map(m => m.committee))].sort()
+  const [filterCommittee, setFilterCommittee] = useState('all')
+
+  const filtered = filterCommittee === 'all'
+    ? meetings
+    : meetings.filter(m => m.committee === filterCommittee)
+
+  const totalMeetings = filtered.length
+  const totalMinutes = filtered.reduce((s, m) => s + (m.duration_minutes || 0), 0)
+  const avgDuration = totalMeetings > 0 ? Math.round(totalMinutes / totalMeetings) : 0
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 20 }}>
+        {[
+          { label: 'Total Meetings', value: totalMeetings, color: '#fff' },
+          { label: 'Total Hours', value: `${(totalMinutes / 60).toFixed(1)}`, color: '#4a9eff' },
+          { label: 'Avg Duration', value: `${avgDuration} min`, color: '#22c55e' },
+          { label: 'Committees', value: committees.length, color: '#ff8c00' },
+        ].map((s, i) => (
+          <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '14px 14px' }}>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: s.color, fontFamily: "'JetBrains Mono'", letterSpacing: -1 }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {meetingData && meetingData.length > 0 && (
+        <MeetingAttendanceCard meetingData={meetingData} year={year} />
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Meeting Log — {year}</div>
+        <select value={filterCommittee} onChange={e => setFilterCommittee(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 11 }}>
+          <option value="all">All Committees</option>
+          {committees.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      {filtered.map((m, idx) => (
+        <div key={m.id || idx} style={{
+          background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 10, marginBottom: 6, overflow: 'hidden',
+        }}>
+          <div onClick={() => setExpandedMeeting(expandedMeeting === idx ? null : idx)} style={{
+            padding: '12px 16px', cursor: 'pointer',
+            display: 'grid', gridTemplateColumns: '100px 2fr 1fr 1fr', gap: 8, alignItems: 'center',
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#4a9eff', fontFamily: "'JetBrains Mono'" }}>
+              {m.meeting_date}
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{m.committee}</div>
+              {m.title && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{m.title}</div>}
+            </div>
+            <div style={{ textAlign: 'right', fontSize: 12, color: 'rgba(255,255,255,0.5)', fontFamily: "'JetBrains Mono'" }}>
+              {m.start_time && m.end_time ? `${m.start_time} — ${m.end_time}` : '—'}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              {m.duration_minutes ? (
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#22c55e', fontFamily: "'JetBrains Mono'" }}>
+                  {m.duration_minutes} min
+                </span>
+              ) : (
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)' }}>—</span>
+              )}
+            </div>
+          </div>
+
+          {expandedMeeting === idx && (
+            <div style={{ padding: '0 16px 14px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ paddingTop: 10 }}>
+                {m.officials_present && m.officials_present.length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Officials Present</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {m.officials_present.map((name, i) => (
+                        <span key={i} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 4, background: 'rgba(74,158,255,0.1)', color: '#4a9eff' }}>{name}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {m.attendees && m.attendees.length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>All Attendees</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>
+                      {m.attendees.join(', ')}
+                    </div>
+                  </div>
+                )}
+                {m.source_url && (
+                  <a href={m.source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: 'rgba(74,158,255,0.6)', textDecoration: 'none' }}>
+                    View original minutes →
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {filtered.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 40, color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
+          No meeting records found. Run the scraper to populate data.
+        </div>
+      )}
     </div>
   )
 }
@@ -93,23 +281,37 @@ export default function CanaanFinance() {
   const [sortBy, setSortBy] = useState('salary_desc')
   const [loading, setLoading] = useState(true)
   const [availableYears, setAvailableYears] = useState([2026])
+  const [meetings, setMeetings] = useState([])
+  const [meetingData, setMeetingData] = useState([])
 
   useEffect(() => { fetchAll() }, [year])
 
   const fetchAll = async () => {
     setLoading(true)
-    const [deptRes, posRes, budgetRes, linesRes, yearsRes] = await Promise.all([
+    const [deptRes, posRes, budgetRes, linesRes, yearsRes, meetingsRes] = await Promise.all([
       supabase.from('departments').select('*').eq('town_id', 1).order('name'),
       supabase.from('positions').select('*, departments(name, slug)').eq('year', year).order('salary', { ascending: false }),
       supabase.from('budget_years').select('*').eq('town_id', 1).eq('year', year).single(),
       supabase.from('budget_lines').select('*, departments(name, slug)').eq('year', year),
       supabase.from('budget_years').select('year').eq('town_id', 1).order('year', { ascending: false }),
+      supabase.from('meeting_records').select('*').eq('town_id', 1).gte('meeting_date', `${year}-01-01`).lte('meeting_date', `${year}-12-31`).order('meeting_date', { ascending: false }),
     ])
     setDepartments(deptRes.data || [])
     setPositions(posRes.data || [])
     setBudget(budgetRes.data || null)
     setBudgetLines(linesRes.data || [])
     setAvailableYears((yearsRes.data || []).map(r => r.year))
+    setMeetings(meetingsRes.data || [])
+
+    // Fetch attendance summary view
+    const { data: attendanceData } = await supabase
+      .from('official_attendance_summary')
+      .select('*')
+      .eq('town_id', 1)
+      .eq('year', year)
+      .order('total_documented_minutes', { ascending: false })
+    setMeetingData(attendanceData || [])
+
     setLoading(false)
   }
 
@@ -146,7 +348,7 @@ export default function CanaanFinance() {
               {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
             <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 3 }}>
-              {[{ k: 'departments', l: 'Departments' }, { k: 'salaries', l: 'All Salaries' }, { k: 'overview', l: 'Overview' }].map(v => (
+              {[{ k: 'departments', l: 'Departments' }, { k: 'salaries', l: 'All Salaries' }, { k: 'meetings', l: 'Meetings' }, { k: 'overview', l: 'Overview' }].map(v => (
                 <button key={v.k} onClick={() => setView(v.k)} style={{ ...btnBase, padding: '7px 14px', fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', background: view === v.k ? 'rgba(255,255,255,0.1)' : 'transparent', color: view === v.k ? '#fff' : 'rgba(255,255,255,0.4)' }}>{v.l}</button>
               ))}
             </div>
@@ -165,11 +367,15 @@ export default function CanaanFinance() {
           <div style={{ textAlign: 'center', padding: 60, color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Loading...</div>
         ) : (
           <>
-            {/* ══ DEPARTMENTS VIEW ══ */}
+            {/* DEPARTMENTS VIEW */}
             {view === 'departments' && (
               <div>
-                {interimAdmin && <SpotlightCard position={interimAdmin} color="#ff8c00" />}
-                {townClerk && <SpotlightCard position={townClerk} color="#22c55e" />}
+                {interimAdmin && <SpotlightCard position={interimAdmin} color="#ff8c00" meetingData={meetingData} />}
+                {townClerk && <SpotlightCard position={townClerk} color="#22c55e" meetingData={meetingData} />}
+
+                {meetingData.length > 0 && (
+                  <MeetingAttendanceCard meetingData={meetingData} year={year} />
+                )}
 
                 {departments.map(dept => {
                   const deptPositions = positions.filter(p => p.departments?.slug === dept.slug)
@@ -250,7 +456,7 @@ export default function CanaanFinance() {
               </div>
             )}
 
-            {/* ══ ALL SALARIES VIEW ══ */}
+            {/* ALL SALARIES VIEW */}
             {view === 'salaries' && (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -289,7 +495,12 @@ export default function CanaanFinance() {
               </div>
             )}
 
-            {/* ══ OVERVIEW VIEW ══ */}
+            {/* MEETINGS VIEW */}
+            {view === 'meetings' && (
+              <MeetingsView meetings={meetings} meetingData={meetingData} year={year} />
+            )}
+
+            {/* OVERVIEW VIEW */}
             {view === 'overview' && (
               <div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>
