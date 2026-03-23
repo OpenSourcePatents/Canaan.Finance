@@ -16,6 +16,9 @@ import re
 import json
 import sys
 import os
+import io
+import time
+import random
 import argparse
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
@@ -23,8 +26,31 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+# Try importing pdfplumber for PDF extraction
+try:
+    import pdfplumber
+    HAS_PDFPLUMBER = True
+except ImportError:
+    HAS_PDFPLUMBER = False
+    print("[!] pdfplumber not installed. Install with: pip install pdfplumber")
+    print("[!] PDF minutes will not be parseable without it.")
+
 BASE_URL = "https://www.canaannh.gov"
 AGENDA_CENTER = f"{BASE_URL}/AgendaCenter"
+
+# Realistic browser headers to avoid Cloudflare blocks
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+# Delay between requests (seconds) — randomized to look human
+MIN_DELAY = 3
+MAX_DELAY = 6
 
 # Known officials and staff to track for attendance
 TRACKED_OFFICIALS = [
@@ -36,30 +62,48 @@ TRACKED_OFFICIALS = [
     "Hue Wetherbee", "Bob Souza",
 ]
 
-# Committee category IDs from CivicPlus AgendaCenter
-# These map to the category dropdown on the page
-COMMITTEES = {
-    "Budget Committee": 2,
-    "Capital Improvement Committee": 4,
-    "Cemetery Trustees Committee": 15,
-    "Conservation Commission": 12,
-    "Economic Development Committee": 5,
-    "Historic District Commission": 6,
-    "Meetinghouse Preservation Committee": 14,
-    "Museum Curators": 7,
-    "Planning Board": 8,
-    "Select Board": 9,
-    "Source Water Protection Committee": 10,
-    "Trustees of the Trust Funds": 11,
-    "Water & Sewer": 13,
-}
+
+def polite_sleep():
+    """Sleep a random amount between requests to avoid rate limiting."""
+    delay = random.uniform(MIN_DELAY, MAX_DELAY)
+    time.sleep(delay)
+
+
+def safe_request(url, max_retries=3):
+    """Make a request with retries and exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=30)
+            if resp.status_code == 403:
+                wait = (attempt + 1) * 30
+                print(f"    [!] 403 Forbidden. Waiting {wait}s before retry ({attempt+1}/{max_retries})...")
+                time.sleep(wait)
+                continue
+            if resp.status_code == 429:
+                wait = (attempt + 1) * 60
+                print(f"    [!] Rate limited. Waiting {wait}s before retry ({attempt+1}/{max_retries})...")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            return resp
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                wait = (attempt + 1) * 15
+                print(f"    [!] Request error: {e}. Waiting {wait}s before retry ({attempt+1}/{max_retries})...")
+                time.sleep(wait)
+            else:
+                print(f"    [!] Failed after {max_retries} attempts: {e}")
+                return None
+    return None
 
 
 def fetch_agenda_center():
     """Fetch the main AgendaCenter page and extract all minutes links."""
     print("[*] Fetching AgendaCenter index...")
-    resp = requests.get(AGENDA_CENTER, timeout=30)
-    resp.raise_for_status()
+    resp = safe_request(AGENDA_CENTER)
+    if not resp:
+        print("[!] Could not fetch AgendaCenter. Exiting.")
+        sys.exit(1)
     return resp.text
 
 
@@ -68,13 +112,11 @@ def extract_minutes_links(html):
     soup = BeautifulSoup(html, "html.parser")
     minutes_links = []
 
-    # Find all links that point to ViewFile/Minutes
     for link in soup.find_all("a", href=True):
         href = link["href"]
         if "/AgendaCenter/ViewFile/Minutes/" in href:
             full_url = urljoin(BASE_URL, href)
 
-            # Try to extract date and ID from URL pattern: _MMDDYYYY-ID
             match = re.search(r"_(\d{8})-(\d+)", href)
             if match:
                 date_str = match.group(1)
@@ -87,10 +129,7 @@ def extract_minutes_links(html):
                 meeting_date = None
                 agenda_id = None
 
-            # Walk up to find the committee name from the section header
             committee = find_committee_for_link(link)
-
-            # Find the meeting title from the adjacent agenda link
             title = find_meeting_title(link)
 
             minutes_links.append({
@@ -112,7 +151,6 @@ def find_committee_for_link(link_element):
         element = element.parent
         if element is None:
             break
-        # Look for h2 headers that name the committee
         prev = element.find_previous_sibling("h2")
         if prev:
             return prev.get_text(strip=True)
@@ -126,29 +164,72 @@ def find_meeting_title(link_element):
         row = row.parent
         if row is None:
             break
-        # Look for the main agenda link in the same row
         agenda_link = row.find("a", href=lambda h: h and "ViewFile/Agenda" in h if h else False)
         if agenda_link:
             return agenda_link.get_text(strip=True)
     return None
 
 
+def extract_text_from_pdf(content_bytes):
+    """Extract text from PDF bytes using pdfplumber."""
+    if not HAS_PDFPLUMBER:
+        return None
+
+    try:
+        with pdfplumber.open(io.BytesIO(content_bytes)) as pdf:
+            text_parts = []
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+            return "\n".join(text_parts) if text_parts else None
+    except Exception as e:
+        print(f"    [!] PDF extraction error: {e}")
+        return None
+
+
+def clean_text(text):
+    """Remove null bytes and other problematic characters."""
+    if not text:
+        return text
+    text = text.replace("\x00", "")
+    text = re.sub(r'[\x01-\x08\x0b\x0c\x0e-\x1f]', '', text)
+    return text
+
+
 def fetch_and_parse_minutes(url):
     """Fetch a single minutes document and extract structured data."""
-    try:
-        resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
-        text = resp.text
+    resp = safe_request(url)
+    if not resp:
+        return None
 
-        # If it's HTML, extract text content
-        if "<html" in text.lower() or "<body" in text.lower():
-            soup = BeautifulSoup(text, "html.parser")
-            text = soup.get_text(separator="\n")
+    try:
+        content_type = resp.headers.get("Content-Type", "").lower()
+        text = None
+
+        # Check if response is PDF
+        if "application/pdf" in content_type or resp.content[:5] == b"%PDF-":
+            print(f"    [PDF] Extracting text...")
+            text = extract_text_from_pdf(resp.content)
+            if not text:
+                print(f"    [!] Could not extract text from PDF")
+                return None
+        else:
+            text = resp.text
+            if "<html" in text.lower() or "<body" in text.lower():
+                soup = BeautifulSoup(text, "html.parser")
+                text = soup.get_text(separator="\n")
+
+        text = clean_text(text)
+
+        if not text or len(text.strip()) < 50:
+            print(f"    [!] Extracted text too short ({len(text.strip()) if text else 0} chars)")
+            return None
 
         return parse_minutes_text(text, url)
 
     except Exception as e:
-        print(f"  [!] Error fetching {url}: {e}")
+        print(f"  [!] Error parsing {url}: {e}")
         return None
 
 
@@ -160,7 +241,6 @@ def parse_minutes_text(text, source_url):
         "duration_minutes": None,
         "attendees": [],
         "officials_present": [],
-        "raw_header": None,
         "source_url": source_url,
     }
 
@@ -168,42 +248,41 @@ def parse_minutes_text(text, source_url):
     if not lines:
         return result
 
-    # Extract header block (first ~10 lines usually have attendees)
-    header_block = "\n".join(lines[:15])
-    result["raw_header"] = header_block
-
     # Parse attendees from header
-    # Format: "Select Board: Name1, Name2, Name3; Role: Name4, Name5"
-    attendee_line = ""
+    attendee_text = ""
+    capturing = False
     for i, line in enumerate(lines):
         line_stripped = line.strip()
-        # Attendee block usually starts after the location line
-        # and before "MINUTES" or "1. Call to Order"
-        if any(keyword in line_stripped.upper() for keyword in ["MINUTES", "CALL TO ORDER"]):
-            break
-        if ":" in line_stripped and i > 1:
-            attendee_line += " " + line_stripped
+        upper = line_stripped.upper()
 
-    # Extract all names from attendee line
-    all_names = extract_names_from_attendee_line(attendee_line)
+        if any(keyword in upper for keyword in ["MINUTES", "CALL TO ORDER"]):
+            if capturing:
+                break
+            if "CALL TO ORDER" in upper:
+                break
+            continue
+
+        if i >= 2 and (":" in line_stripped or capturing):
+            capturing = True
+            attendee_text += " " + line_stripped
+
+    all_names = extract_names_from_attendee_line(attendee_text)
     result["attendees"] = all_names
 
-    # Match against tracked officials
     result["officials_present"] = [
         name for name in TRACKED_OFFICIALS
         if any(name.lower() in a.lower() for a in all_names)
     ]
 
-    # Parse start time — "called the meeting to order at X:XX PM"
+    # Parse start time
     start_match = re.search(
         r"(?:call(?:ed)?.*?to order|meeting.*?(?:began|opened|started)).*?(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))",
-        text, re.IGNORECASE
+        text, re.IGNORECASE | re.DOTALL
     )
     if start_match:
         result["start_time"] = normalize_time(start_match.group(1))
 
-    # Parse end time — "adjourn.*at X:XX PM" or "meeting adjourned at X:XX PM"
-    # Use DOTALL to handle line breaks between "adjourn" and the time
+    # Parse end time
     adjourn_match = re.search(
         r"adjourn.*?(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))",
         text, re.IGNORECASE | re.DOTALL
@@ -220,7 +299,7 @@ def parse_minutes_text(text, source_url):
             if end < start:
                 end += timedelta(hours=12)
             diff = (end - start).total_seconds() / 60
-            if 0 < diff < 600:  # sanity check: less than 10 hours
+            if 0 < diff < 600:
                 result["duration_minutes"] = int(diff)
         except ValueError:
             pass
@@ -231,20 +310,14 @@ def parse_minutes_text(text, source_url):
 def extract_names_from_attendee_line(text):
     """Extract individual names from the attendee/header text."""
     names = []
-    # Remove role prefixes like "Select Board:", "TA", "Public:"
-    # Split on semicolons first (separates role groups)
     segments = re.split(r"[;]", text)
     for segment in segments:
-        # Remove the role label before the colon
         if ":" in segment:
             segment = segment.split(":", 1)[1]
-        # Remove common prefixes
         segment = re.sub(r"\b(TA|Recorded by|Public)\b", ",", segment, flags=re.IGNORECASE)
-        # Split on commas and "and"
         parts = re.split(r"[,]|\band\b", segment)
         for part in parts:
             name = part.strip().strip(".")
-            # Basic name validation: 2+ words, no weird chars
             if name and len(name.split()) >= 2 and len(name) < 40:
                 if not re.search(r"[0-9@#$%]", name):
                     names.append(name)
@@ -276,22 +349,31 @@ def scrape_all(committee_filter=None, year_filter=None):
     if year_filter:
         links = [l for l in links if l["date"] and l["date"].startswith(str(year_filter))]
 
-    print(f"[*] Scraping {len(links)} minutes documents...")
+    print(f"[*] Scraping {len(links)} minutes documents (with {MIN_DELAY}-{MAX_DELAY}s delay between requests)...")
 
     records = []
     for i, link in enumerate(links):
         print(f"  [{i+1}/{len(links)}] {link['committee']} — {link['date']} — {link['title'] or 'untitled'}")
+
+        # Polite delay between requests
+        if i > 0:
+            polite_sleep()
+
         parsed = fetch_and_parse_minutes(link["url"])
         if parsed:
             record = {
                 "meeting_date": link["date"],
-                "committee": link["committee"],
-                "title": link["title"],
+                "committee": clean_text(link["committee"]),
+                "title": clean_text(link["title"]),
                 "agenda_id": link["agenda_id"],
-                **parsed,
+                "start_time": parsed["start_time"],
+                "end_time": parsed["end_time"],
+                "duration_minutes": parsed["duration_minutes"],
+                "attendees": parsed["attendees"],
+                "officials_present": parsed["officials_present"],
+                "source_url": parsed["source_url"],
             }
             records.append(record)
-            # Brief summary
             dur = f"{record['duration_minutes']}min" if record["duration_minutes"] else "unknown duration"
             officials = ", ".join(record["officials_present"][:3]) or "none tracked"
             print(f"         {record['start_time'] or '?'} — {record['end_time'] or '?'} ({dur}) | Officials: {officials}")
@@ -316,14 +398,13 @@ def push_to_supabase(records):
         "Prefer": "resolution=merge-duplicates",
     }
 
-    # Upsert records
     rows = []
     for r in records:
         rows.append({
             "town_id": 1,
             "meeting_date": r["meeting_date"],
-            "committee": r["committee"],
-            "title": r["title"],
+            "committee": clean_text(r["committee"]),
+            "title": clean_text(r["title"]),
             "agenda_id": r["agenda_id"],
             "start_time": r["start_time"],
             "end_time": r["end_time"],
@@ -334,12 +415,28 @@ def push_to_supabase(records):
         })
 
     endpoint = f"{url}/rest/v1/meeting_records"
-    resp = requests.post(endpoint, headers=headers, json=rows)
 
-    if resp.status_code in (200, 201):
-        print(f"[*] Pushed {len(rows)} records to Supabase")
-    else:
-        print(f"[!] Supabase error {resp.status_code}: {resp.text}")
+    # Push in batches of 5 to avoid payload issues
+    batch_size = 5
+    total_pushed = 0
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i+batch_size]
+        resp = requests.post(endpoint, headers=headers, json=batch)
+
+        if resp.status_code in (200, 201):
+            total_pushed += len(batch)
+            print(f"  [*] Pushed batch {i//batch_size + 1} ({len(batch)} records)")
+        else:
+            print(f"  [!] Supabase error {resp.status_code} on batch {i//batch_size + 1}: {resp.text}")
+            # Try individual records to find the problem one
+            for j, row in enumerate(batch):
+                single_resp = requests.post(endpoint, headers=headers, json=[row])
+                if single_resp.status_code in (200, 201):
+                    total_pushed += 1
+                else:
+                    print(f"    [!] Failed: {row['meeting_date']} {row['committee']}: {single_resp.text}")
+
+    print(f"[*] Pushed {total_pushed}/{len(rows)} records to Supabase")
 
 
 def main():
@@ -352,7 +449,6 @@ def main():
 
     records = scrape_all(committee_filter=args.committee, year_filter=args.year)
 
-    # Always write JSON output
     with open(args.output, "w") as f:
         json.dump(records, f, indent=2, default=str)
     print(f"[*] Wrote {len(records)} records to {args.output}")
