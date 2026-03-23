@@ -7,7 +7,7 @@ Public budget transparency tool for Canaan, NH. Salaries, department budgets, an
 -----
 
 ## Stack
-
+-
 - Next.js 14 + React 18
 - Supabase (Postgres)
 - Vercel
