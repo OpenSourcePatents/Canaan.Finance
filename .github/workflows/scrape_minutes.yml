@@ -1,0 +1,53 @@
+name: Scrape Meeting Minutes
+
+on:
+  schedule:
+    # Every Monday at 8am UTC (3am EST)
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      committee:
+        description: 'Filter by committee (optional, e.g. "Select Board")'
+        required: false
+        type: string
+      year:
+        description: 'Filter by year (optional, e.g. 2026)'
+        required: false
+        type: string
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          ARGS="--push"
+          if [ -n "${{ inputs.committee }}" ]; then
+            ARGS="$ARGS --committee '${{ inputs.committee }}'"
+          fi
+          if [ -n "${{ inputs.year }}" ]; then
+            ARGS="$ARGS --year ${{ inputs.year }}"
+          fi
+          python scripts/scrape_minutes.py $ARGS
+
+      - name: Upload JSON artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meeting-records
+          path: meeting_records.json
+          retention-days: 30
