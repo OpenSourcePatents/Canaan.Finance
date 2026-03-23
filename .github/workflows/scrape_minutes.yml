@@ -36,15 +36,17 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          INPUT_COMMITTEE: ${{ inputs.committee }}
+          INPUT_YEAR: ${{ inputs.year }}
         run: |
           ARGS="--push"
-          if [ -n "${{ inputs.committee }}" ]; then
-            ARGS="$ARGS --committee '${{ inputs.committee }}'"
+          if [ -n "$INPUT_COMMITTEE" ]; then
+            ARGS="$ARGS --committee \"$INPUT_COMMITTEE\""
           fi
-          if [ -n "${{ inputs.year }}" ]; then
-            ARGS="$ARGS --year ${{ inputs.year }}"
+          if [ -n "$INPUT_YEAR" ]; then
+            ARGS="$ARGS --year $INPUT_YEAR"
           fi
-          python scripts/scrape_minutes.py $ARGS
+          eval python scripts/scrape_minutes.py $ARGS
 
       - name: Upload JSON artifact
         uses: actions/upload-artifact@v4
