@@ -502,7 +502,7 @@ export default function CanaanFinance() {
               {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
             <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 3 }}>
-              {[{ k: 'departments', l: 'Departments' }, { k: 'salaries', l: 'All Salaries' }, { k: 'meetings', l: 'Meetings' }, { k: 'overview', l: 'Overview' }].map(v => (
+              {[{ k: 'departments', l: 'Departments' }, { k: 'salaries', l: 'All Salaries' }, { k: 'meetings', l: 'Meetings' }, { k: 'overview', l: 'Overview' }, { k: 'directory', l: 'Directory' }].map(v => (
                 <button key={v.k} onClick={() => setView(v.k)} style={{ ...btnBase, padding: '7px 14px', fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', background: view === v.k ? 'rgba(255,255,255,0.1)' : 'transparent', color: view === v.k ? '#fff' : 'rgba(255,255,255,0.4)' }}>{v.l}</button>
               ))}
             </div>
