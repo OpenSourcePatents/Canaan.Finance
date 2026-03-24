@@ -417,7 +417,124 @@ function SidePanel({ positionId, positions, meetingData, onClose }) {
     </>
   )
 }
+function DirectoryView({ positions, departments, onSidePanel }) {
+  const [sortBy, setSortBy] = useState('alpha_asc')
+  const [filterDept, setFilterDept] = useState('all')
+  const [filterType, setFilterType] = useState('all')
 
+  const deptOptions = [...new Set(positions.map(p => p.departments?.name).filter(Boolean))].sort()
+
+  const sorted = [...positions]
+    .filter(p => filterDept === 'all' || p.departments?.name === filterDept)
+    .filter(p => {
+      if (filterType === 'all') return true
+      if (filterType === 'vacant') return p.status === 'vacant' || !p.name
+      if (filterType === 'employee') return p.employment_type === 'employee'
+      if (filterType === 'contractor') return p.employment_type === 'contractor'
+      if (filterType === 'elected') return p.employment_type === 'elected'
+      return true
+    })
+    .sort((a, b) => {
+      const aLast = a.name ? a.name.split(' ').pop().toLowerCase() : 'zzz'
+      const bLast = b.name ? b.name.split(' ').pop().toLowerCase() : 'zzz'
+      if (sortBy === 'alpha_asc') return aLast.localeCompare(bLast)
+      if (sortBy === 'alpha_desc') return bLast.localeCompare(aLast)
+      if (sortBy === 'dept') return (a.departments?.name || '').localeCompare(b.departments?.name || '')
+      if (sortBy === 'salary_desc') return b.salary - a.salary
+      if (sortBy === 'salary_asc') return a.salary - b.salary
+      return 0
+    })
+
+  const filled = sorted.filter(p => p.name && p.name !== 'Various')
+  const vacant = sorted.filter(p => !p.name || p.name === 'Various')
+
+  return (
+    <div>
+      {/* Header note */}
+      <div style={{ background: 'rgba(74,158,255,0.06)', border: '1px solid rgba(74,158,255,0.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
+        <strong style={{ color: '#4a9eff' }}>👆 Click any name</strong> to open their full profile — salary, hours, meeting attendance, rankings, and more.
+      </div>
+
+      {/* Controls */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: '#1a1d2e', color: '#fff', fontSize: 11 }}>
+          <option value="alpha_asc">A → Z</option>
+          <option value="alpha_desc">Z → A</option>
+          <option value="dept">By Department</option>
+          <option value="salary_desc">Salary High → Low</option>
+          <option value="salary_asc">Salary Low → High</option>
+        </select>
+        <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: '#1a1d2e', color: '#fff', fontSize: 11 }}>
+          <option value="all">All Departments</option>
+          {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: '#1a1d2e', color: '#fff', fontSize: 11 }}>
+          <option value="all">All Types</option>
+          <option value="employee">Employees</option>
+          <option value="contractor">Contractors</option>
+          <option value="elected">Elected</option>
+          <option value="vacant">Vacant / Unfilled</option>
+        </select>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginLeft: 4 }}>{sorted.length} positions</div>
+      </div>
+
+      {/* Filled positions */}
+      {filled.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10 }}>Staff & Officials</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+            {filled.map((pos, idx) => {
+              const hourly = pos.hours_per_week ? pos.salary / (pos.hours_per_week * 52) : null
+              const color = DEPT_COLORS[pos.departments?.slug] || '#888'
+              return (
+                <div key={pos.id} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 3, height: 36, borderRadius: 2, background: color, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>
+                      <ClickableName positionId={pos.id} name={pos.name} onSidePanel={onSidePanel} />
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>{pos.title}</div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{pos.departments?.name}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', fontFamily: "'JetBrains Mono'" }}>{fmtCurrency(pos.salary)}</div>
+                    {hourly && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontFamily: "'JetBrains Mono'" }}>{fmtRate(hourly)}</div>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Vacant positions */}
+      {vacant.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10 }}>Vacant / Unfilled Positions</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+            {vacant.map((pos, idx) => {
+              const color = DEPT_COLORS[pos.departments?.slug] || '#888'
+              return (
+                <div key={pos.id} style={{ background: 'rgba(255,68,68,0.04)', border: '1px solid rgba(255,68,68,0.12)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 3, height: 36, borderRadius: 2, background: color, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,68,68,0.8)' }}>VACANT</div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>{pos.title}</div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{pos.departments?.name}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.3)', fontFamily: "'JetBrains Mono'" }}>{fmtCurrency(pos.salary)}</div>
+                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>budgeted</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CanaanFinance() {
@@ -710,7 +827,7 @@ export default function CanaanFinance() {
 
           {/* ── MEETINGS VIEW ── */}
           {view === 'meetings' && <MeetingsView meetings={meetings} meetingData={meetingData} year={year} />}
-
+          {view === 'directory' && <DirectoryView positions={positions} departments={departments} onSidePanel={setSidePanelId} />}
           {/* ── OVERVIEW VIEW ── */}
           {view === 'overview' && (
             <div>
