@@ -116,11 +116,9 @@ function SpotlightCard({ position, color = '#ff8c00', meetingData }) {
           : <span>Base salary {fmtCurrency(position.salary)} + estimated benefits ({position.benefits_pct || 35}%) of {fmtCurrency(bCost)} = total loaded cost of approximately <strong style={{ color: '#4a9eff' }}>{fmtCurrency(position.salary + bCost)}</strong>.</span>
         }
       </div>
-      {official && (
-        <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 8, background: 'rgba(74,158,255,0.08)', border: '1px solid rgba(74,158,255,0.15)', fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
-          <strong style={{ color: '#4a9eff' }}>Documented Meeting Hours:</strong> {official.total_documented_hours} hrs across {official.meetings_attended} meetings ({official.committees?.length || 0} committee{official.committees?.length !== 1 ? 's' : ''}). <span style={{ color: 'rgba(255,255,255,0.5)' }}>Source: official minutes on canaannh.gov</span>
+      <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 8, background: 'rgba(74,158,255,0.08)', border: '1px solid rgba(74,158,255,0.15)', fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
+          <strong style={{ color: '#4a9eff' }}>Documented Meeting Hours:</strong> {official ? `${official.total_documented_hours} hrs across ${official.meetings_attended} meetings (${official.committees?.length || 0} committee${official.committees?.length !== 1 ? 's' : ''})` : '0 hrs across 0 meetings'}. <span style={{ color: 'rgba(255,255,255,0.5)' }}>Source: official minutes on canaannh.gov</span>
         </div>
-      )}
     </div>
   )
 }
@@ -170,7 +168,7 @@ function MeetingsView({ meetings, meetingData, year }) {
       {meetingData?.length > 0 && <MeetingAttendanceCard meetingData={meetingData} year={year} />}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Meeting Log — {year}</div>
-        <select value={fc} onChange={e => setFc(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 11 }}>
+        <select value={fc} onChange={e => setFc(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: '#1a1d2e', color: '#fff', fontSize: 11 }}>
           <option value="all">All Committees</option>
           {committees.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
@@ -262,7 +260,7 @@ export default function CanaanFinance() {
             <div><div style={{ fontSize: 15, fontWeight: 800, color: '#fff', letterSpacing: -0.5 }}>CANAAN FINANCE</div><div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: 2 }}>YOUR TAX DOLLARS — VISUALIZED</div></div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 11, fontFamily: "'JetBrains Mono'", cursor: 'pointer' }}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
+            <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: '#1a1d2e', color: '#fff', fontSize: 11, fontFamily: "'JetBrains Mono'", cursor: 'pointer' }}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
             <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 3 }}>
               {[{ k: 'departments', l: 'Departments' }, { k: 'salaries', l: 'All Salaries' }, { k: 'meetings', l: 'Meetings' }, { k: 'overview', l: 'Overview' }].map(v => (
                 <button key={v.k} onClick={() => setView(v.k)} style={{ ...btnBase, padding: '7px 14px', fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', background: view === v.k ? 'rgba(255,255,255,0.1)' : 'transparent', color: view === v.k ? '#fff' : 'rgba(255,255,255,0.4)' }}>{v.l}</button>
@@ -358,7 +356,7 @@ export default function CanaanFinance() {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>All Positions — {year}</div>
-                <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 11 }}>
+                <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: '#1a1d2e', color: '#fff', fontSize: 11 }}>
                   <option value="salary_desc">Highest Salary</option><option value="salary_asc">Lowest Salary</option><option value="hourly_desc">Highest Hourly</option><option value="hourly_asc">Lowest Hourly</option><option value="loaded_desc">Highest Loaded Cost</option>
                 </select>
               </div>
